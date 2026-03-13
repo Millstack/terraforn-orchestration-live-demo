@@ -1,0 +1,85 @@
+name: "Infrastructure & Build"
+
+on:
+  push:
+    branches: [ main, test, dev ]
+
+  # This section allows you to manually run the workflow from the Actions tab
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        type: choice
+        required: true
+        default: 'dev'
+        options: [dev, test, prod]
+      action:
+        description: 'Terraform Action'
+        type: choice
+        required: true
+        default: 'plan'
+        options: [plan, apply, destroy]
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    # Links to GitHub Environments for approval gates
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+    
+    steps:
+      - name: Checkout Orchestration Repo
+        uses: actions/checkout@v4
+
+      # STEP 1: Use your Secret to allow the Runner to see private modules
+      - name: Configure Git for Private Modules
+        run: |
+          git config --global url."https://${{ secrets.TERRAFORM_XXXXX_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      # STEP 2: Configure AWS Credentials (Required for Plan/Apply)
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_XXXXXXXXXXXX_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_XXXXXXXXXXXXX_KEY }}
+          aws-region: ap-south-1 # Mumbai
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # STEP 3: Setting Environment Context for Terraform (dev/test/prod) based on Branch or Manual Input
+      - name: Set Environment Context
+        run: |
+          # Priority 1: Manual Input | Priority 2: Branch Logic
+          if [[ "${{ github.event.inputs.environment }}" != "" ]]; then
+            echo "ENV=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "ENV=prod" >> $GITHUB_ENV
+          elif [[ "${{ github.ref }}" == "refs/heads/test" ]]; then
+            echo "ENV=test" >> $GITHUB_ENV
+          else
+            echo "ENV=dev" >> $GITHUB_ENV
+          fi
+
+      # STEP 4: Initialize Terraform, Select Workspace, and Run Plan    
+      - name: Terraform Init, Workspace & Plan
+        run: |
+          # Initialize and fetch private modules
+          terraform init -upgrade
+
+          # Select or create the specific workspace (dev, test, or prod)
+          terraform workspace select $ENV || terraform workspace new $ENV
+          
+          # Determine the command (defaults to plan unless manual input says otherwise)
+          TF_ACTION="${{ github.event.inputs.action || 'plan' }}"
+
+          # Auto-apply logic: If on main/test branch push, force apply. 
+          # Otherwise, follow the manual action or default plan.
+          if [[ "${{ github.event_name }}" == "push" && ("${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/test") ]]; then
+            terraform apply -var-file="$ENV.tfvars" -auto-approve
+          else
+            terraform $TF_ACTION -var-file="$ENV.tfvars" -auto-approve
+          fi
+
+
+          
