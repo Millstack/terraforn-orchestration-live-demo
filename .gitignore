@@ -1,0 +1,32 @@
+# 0. git-ignore file
+# .gitignore
+
+# 1. local terraform directories
+.terraform/
+
+# 2. local state files (ie sensitive data in plain text)
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.backup
+
+# 3. crash logs
+crash.log
+crash.*.log
+
+# 4. excliuding all .tfvars files for security (sensitive data/passwords)
+# *.tfvars
+# *.tfvars.json
+
+# 5. ignoring override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# 6. ignoring CLI configuration files
+.terraformrc
+terraform.rc
+
+# 7. modules folders
+modules/
